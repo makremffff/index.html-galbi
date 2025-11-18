@@ -1,4 +1,4 @@
-// /api/index.js — FULL BACKEND FOR TELEGRAM WEBAPP GAME (FINAL FIXED VERSION)
+// FINAL BACKEND WITHOUT initData — FIXED 500 ERROR
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -18,38 +18,35 @@ export default async function handler(req, res) {
     const body = req.body || {};
     const user_id = body.user_id;
 
-    // ========================== HELPER (Supabase) ==========================
+    if (!user_id) {
+      return res.status(400).json({ success: false, error: "Missing user_id" });
+    }
+
+    // ---------------- Supabase helper ----------------
     async function sb(url, method = "GET", data = null) {
-      return await fetch(`${SUPABASE_URL}${url}`, {
+      return fetch(`${SUPABASE_URL}${url}`, {
         method,
         headers: {
           apikey: SUPABASE_ANON_KEY,
           Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
           "Content-Type": "application/json",
         },
-        body: data ? JSON.stringify(data) : null
-      }).then(r => r.json());
+        body: data ? JSON.stringify(data) : null,
+      }).then((r) => r.json());
     }
 
-    // ========================== CREATE USER IF NOT EXISTS ==========================
-    async function ensureUserCreated() {
+    // ---------------- Create user if not exists ----------------
+    async function ensureUser() {
       let u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
 
       if (!u || u.length === 0) {
-        const tgUser = body.initData?.user || {};
-
         await sb(`/rest/v1/users`, "POST", {
           user_id,
-          first_name: tgUser.first_name || "",
-          last_name: tgUser.last_name || "",
-          username: tgUser.username || "",
-          photo_url: tgUser.photo_url || "",
           points: 0,
           tickets: 3,
           usdt: 0,
           invite_count: 0,
-          referred_by: null,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         });
 
         u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
@@ -58,13 +55,13 @@ export default async function handler(req, res) {
       return u[0];
     }
 
-    // ======================================================================
-    // =============================== ACTIONS ===============================
-    // ======================================================================
+    // ===================================================================
+    // =========================== ACTIONS ===============================
+    // ===================================================================
 
-    // ---------- 1) getUserData ----------
+    // ----- 1) getUserData -----
     if (action === "getUserData") {
-      const u = await ensureUserCreated();
+      const u = await ensureUser();
 
       return res.json({
         success: true,
@@ -73,124 +70,126 @@ export default async function handler(req, res) {
         tickets: u.tickets,
         user: {
           id: u.user_id,
-          first_name: u.first_name,
-          photo_url: u.photo_url
-        }
+          first_name: "Player",
+          photo_url: "",
+        },
       });
     }
 
-    // ---------- 2) updateStats ----------
+    // ----- 2) updateStats -----
     if (action === "updateStats") {
+      await ensureUser();
+
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
         points: body.points,
         usdt: body.usdt,
-        tickets: body.tickets
+        tickets: body.tickets,
       });
 
       return res.json({ success: true });
     }
 
-    // ---------- 3) startGame ----------
+    // ----- 3) startGame -----
     if (action === "startGame") {
+      await ensureUser();
       return res.json({ success: true });
     }
 
-    // ---------- 4) endGame ----------
+    // ----- 4) endGame -----
     if (action === "endGame") {
-      const u = await ensureUserCreated();
-      const newPoints = (u.points || 0) + (body.earned_points || 0);
+      const u = await ensureUser();
+      const earned = body.earned_points || 0;
 
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
-        points: newPoints
+        points: u.points + earned,
       });
 
       return res.json({ success: true });
     }
 
-    // ---------- 5) watchAd ----------
+    // ----- 5) watchAd -----
     if (action === "watchAd") {
-      const u = await ensureUserCreated();
-      const newTickets = u.tickets + 1;
+      const u = await ensureUser();
 
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
-        tickets: newTickets
+        tickets: u.tickets + 1,
       });
 
       return res.json({ success: true, tickets: 1 });
     }
 
-    // ---------- 6) purchaseTickets ----------
+    // ----- 6) purchaseTickets -----
     if (action === "purchaseTickets") {
-      const u = await ensureUserCreated();
+      const u = await ensureUser();
 
-      if (u.points < body.star_cost)
+      if (u.points < body.star_cost) {
         return res.json({ success: false, error: "Not enough stars" });
+      }
 
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
         points: u.points - body.star_cost,
-        tickets: u.tickets + body.ticket_amount
+        tickets: u.tickets + body.ticket_amount,
       });
 
       return res.json({ success: true });
     }
 
-    // ---------- 7) referral ----------
+    // ----- 7) referral -----
     if (action === "referral") {
-      const ref = body.referred_by;
+      const refID = body.referred_by;
 
-      if (!ref || ref == user_id) return res.json({ success: false });
+      if (!refID || refID == user_id) {
+        return res.json({ success: false });
+      }
 
-      const u = await ensureUserCreated();
+      const u = await ensureUser();
 
-      if (u.referred_by)
-        return res.json({ success: true });
+      if (u.referred_by) return res.json({ success: true });
 
-      // Save referral
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
-        referred_by: ref
+        referred_by: refID,
       });
 
-      // Reward inviter
-      const r = await sb(`/rest/v1/users?user_id=eq.${ref}`);
-      if (r.length > 0) {
-        await sb(`/rest/v1/users?user_id=eq.${ref}`, "PATCH", {
-          invite_count: r[0].invite_count + 1,
-          tickets: r[0].tickets + 10
+      const ref = await sb(`/rest/v1/users?user_id=eq.${refID}`);
+      if (ref.length > 0) {
+        await sb(`/rest/v1/users?user_id=eq.${refID}`, "PATCH", {
+          invite_count: ref[0].invite_count + 1,
+          tickets: ref[0].tickets + 10,
         });
       }
 
       return res.json({ success: true });
     }
 
-    // ---------- 8) getInviteData ----------
+    // ----- 8) getInviteData -----
     if (action === "getInviteData") {
-      const u = await ensureUserCreated();
+      const u = await ensureUser();
       const link = `https://t.me/Game_win_usdtBot/earn?startapp=ref_${user_id}`;
 
       return res.json({
         success: true,
         invite_count: u.invite_count,
-        invite_link: link
+        invite_link: link,
       });
     }
 
-    // ---------- 9) updateInviteCount ----------
+    // ----- 9) updateInviteCount -----
     if (action === "updateInviteCount") {
-      const u = await ensureUserCreated();
+      const u = await ensureUser();
+
       return res.json({
         success: true,
-        invite_count: u.invite_count
+        invite_count: u.invite_count,
       });
     }
 
-    // ---------- UNKNOWN ----------
+    // ---------- Unknown ----------
     return res.json({ success: false, error: "Unknown action" });
-
   } catch (e) {
     return res.status(500).json({
       success: false,
       error: "Server Error",
-      details: e.toString()
+      details: e.toString(),
     });
   }
 }
