@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <title>Mini App – Snow</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{
+      --accent:#00d9ff;
+      --text:#fff;
+      --card-bg:#ffffff1a;
+      --soft-btn:#00d9ff33;
+      --soft-btn-h:#00d9ff44;
+      --dis:#ffffff22;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;overflow:hidden;background:linear-gradient(135deg,#1e3c72,#2a5298);font-family:Arial,Helvetica,sans-serif;color:var(--text)}
+
+    /* ثلج */
+    .snow-container{position:absolute;inset:0;pointer-events:none}
+    .snowflake{position:absolute;top:-50px;font-size:1rem;animation:fall linear infinite}
+    .snowflake::before{content:"❄";color:#fff}
+    @keyframes fall{to{transform:translateY(calc(100vh + 50px))}}
+
+    /* game-card / user-card */
+    .game-card{position:absolute;top:12px;left:12px;background:var(--card-bg);backdrop-filter:blur(8px);border:1px solid #ffffff30;border-radius:14px;padding:10px 14px;font-size:13px;display:flex;flex-direction:column;gap:4px;user-select:none}
+    .game-card .row{display:flex;align-items:center;justify-content:space-between;min-width:110px}
+    .game-card .label{opacity:.75;font-size:11px}
+    .game-card .val{font-weight:700;color:var(--accent)}
+
+    /* أزرار المتجر والسحب والدعوة */
+    #storeBtnWrap{position:absolute;top:102px;left:12px}
+    #withdrawBtnWrap{position:absolute;top:102px;left:12px;margin-top:44px}
+    #inviteBtnWrap{position:absolute;top:102px;left:12px;margin-top:88px}
+
+    /* 3D push */
+    .btn-3d{
+      font-size:12px;
+      padding:6px 14px;
+      border-radius:16px;
+      box-shadow:0 4px 0 var(--accent);
+      transition:all .1s ease;
+      border:1px solid var(--accent);
+      background:var(--soft-btn);
+      color:var(--text);
+      cursor:pointer;
+    }
+    .btn-3d:active{
+      transform:translateY(2px);
+      box-shadow:0 2px 0 var(--accent);
+    }
+
+    .user-card{position:absolute;top:12px;right:12px;text-align:center;font-size:11px}
+    .user-card img{width:48px;height:48px;border-radius:50%;border:2px solid #ffffff50;object-fit:cover;display:block;margin:0 auto 4px}
+    .user-card #userId{opacity:.7;font-size:10px;direction:ltr;unicode-bidi:plaintext;margin-top:2px}
+
+    /* أزرار أسفل */
+    .soft-btn{background:var(--soft-btn);border:1px solid var(--accent);color:var(--text);font-size:13px;font-weight:600;padding:10px 20px;border-radius:25px;backdrop-filter:blur(6px);cursor:pointer;transition:background .2s}
+    .soft-btn:active{background:var(--soft-btn-h)}
+    #btnGroup{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
+
+    /* صفحات */
+    .page{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;visibility:hidden;opacity:0;transform:translateX(20px);transition:visibility 0s .6s, opacity .6s, transform .6s}
+    .page.active{visibility:visible;opacity:1;transform:translateX(0);transition:visibility 0s, opacity .6s, transform .6s}
+
+    /* شاشة اللعبة */
+    #gameScreen{display:none;flex-direction:column;align-items:center;justify-content:center;height:100%;position:relative}
+    #timer{position:absolute;top:20px;font-size:24px;font-weight:700;color:var(--accent)}
+    #score{position:absolute;bottom:100px;font-size:20px}
+
+    /* فواكه */
+    .fruit{position:absolute;top:-80px;font-size:60px;cursor:pointer;user-select:none;animation:fruitFall linear;pointer-events:auto;touch-action:manipulation}
+    @keyframes fruitFall{to{transform:translateY(calc(100vh + 100px))}}
+
+    /* إخفاء زر Back من الرئيسية */
+    #page1 .back-btn{display:none!important}
+
+    /* صفحة Invite */
+    #inviteTop{margin-bottom:15px;font-size:18px}
+    #inviteTop b{color:var(--accent)}
+    #copyMsg{margin-top:6px;font-size:12px;opacity:0;transition:opacity .3s}
+  </style>
+</head>
+<body>
+
+<!-- ========== الصفحة 1 (الرئيسية) ========== -->
+<div id="page1" class="page active">
+  <div class="snow-container" id="snowContainer"></div>
+
+  <div class="game-card">
+    <div class="row"><span class="label">⭐ Points</span><span class="val" id="points">0</span></div>
+    <div class="row"><span class="label">💎 USDT</span><span class="val" id="usdt">0</span></div>
+    <div class="row"><span class="label">🎫 Tickets</span><span class="val" id="tickets">0</span></div>
+  </div>
+
+  <!-- زر المتجر -->
+  <div id="storeBtnWrap">
+    <button id="storeBtn" class="btn-3d" onclick="openPage('store')">STORE</button>
+  </div>
+
+  <!-- زر Withdraw -->
+  <div id="withdrawBtnWrap">
+    <button id="withdrawBtn" class="btn-3d" onclick="openPage('withdraw')">Withdraw</button>
+  </div>
+
+  <!-- زر دعوة صديق -->
+  <div id="inviteBtnWrap">
+    <button id="inviteBtn" class="btn-3d" onclick="openPage('invite')">Invite Friend</button>
+  </div>
+
+  <div class="user-card">
+    <img id="userImg" src="" alt=""><div id="userName"></div><div id="userId"></div>
+  </div>
+
+  <div id="btnGroup">
+    <button class="soft-btn btn-3d" onclick="checkPlay()">Play</button>
+    <button class="soft-btn btn-3d" onclick="openPage('swap')">Swap</button>
+    <button class="soft-btn btn-3d" onclick="openPage('addTask')">Add Task</button>
+    <button class="soft-btn btn-3d" onclick="openPage('task')">Task</button>
+  </div>
+
+  <!-- زر Back ثابت (مخفي في الرئيسية) -->
+  <button class="soft-btn btn-3d back-btn" onclick="openPage('page1')" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%);">Back</button>
+</div>
+
+<!-- ========== صفحة اللعبة ========== -->
+<div id="game" class="page">
+  <div id="gameScreen">
+    <div id="timer">30</div>
+    <div id="score">Score: 0</div>
+  </div>
+  <button class="soft-btn btn-3d back-btn" onclick="openPage('page1')" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%);">Back</button>
+</div>
+
+<!-- ========== صفحة Swap ========== -->
+<div id="swap" class="page">
+  <h2 style="margin-bottom:20px">Swap</h2>
+  <p>محتوى صفحة Swap سيُضاف لاحقاً</p>
+  <button class="soft-btn btn-3d back-btn" onclick="openPage('page1')" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%);">Back</button>
+</div>
+
+<!-- ========== صفحة Add Task ========== -->
+<div id="addTask" class="page">
+  <h2 style="margin-bottom:20px">Add Task</h2>
+  <p>محتوى صفحة Add Task سيُضاف لاحقاً</p>
+  <button class="soft-btn btn-3d back-btn" onclick="openPage('page1')" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%);">Back</button>
+</div>
+
+<!-- ========== صفحة Task ========== -->
+<div id="task" class="page">
+  <h2 style="margin-bottom:20px">Task</h2>
+  <p>محتوى صفحة Task سيُضاف لاحقاً</p>
+  <button class="soft-btn btn-3d back-btn" onclick="openPage('page1')" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%);">Back</button>
+</div>
+
+<!-- ========== صفحة المتجر ========== -->
+<div id="store" class="page">
+  <h2 style="font-size:24px; color:var(--accent); text-shadow:0 0 4px var(--accent); margin-bottom:30px;">STORE</h2>
+  <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+    <button id="adBtn" class="soft-btn btn-3d" onclick="watchAd()" style="min-width:160px;">Watch Ad</button>
+    <div style="font-size:12px; opacity:0.7;">+1 🎫</div>
+  </div>
+  <div style="display:flex; gap:15px; margin-top:20px;">
+    <div style="display:flex; flex-direction:column; align-items:center;">
+      <button class="soft-btn btn-3d" onclick="buyTickets(500)">Buy 500 🎫</button>
+      <span style="margin-top:6px; font-size:16px; opacity:0.8;">10 ⭐</span>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:center;">
+      <button class="soft-btn btn-3d" onclick="buyTickets(2500)">Buy 2500 🎫</button>
+      <span style="margin-top:6px; font-size:16px; opacity:0.8;">50 ⭐</span>
+    </div>
+    <div style="display:flex; flex-direction:column; align-items:center;">
+      <button class="soft-btn btn-3d" onclick="buyTickets(6000)">Buy 6000 🎫</button>
+      <span style="margin-top:6px; font-size:16px; opacity:0.8;">100 ⭐</span>
+    </div>
+  </div>
+  <button class="soft-btn btn-3d back-btn" onclick="openPage('page1')" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%);">Back</button>
+</div>
+
+<!-- ========== صفحة Withdraw ========== -->
+<div id="withdraw" class="page">
+  <h2 style="margin-bottom:20px">Withdraw</h2>
+  <p>محتوى صفحة Withdraw سيُضاف لاحقاً</p>
+  <button class="soft-btn btn-3d back-btn" onclick="openPage('page1')" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%);">Back</button>
+</div>
+
+<!-- ========== صفحة Invite Friend ========== -->
+<div id="invite" class="page">
+  <h2 style="margin-bottom:10px">Invite Friends</h2>
+
+  <!-- عداد الإحالات -->
+  <div id="inviteTop">
+    Total Invites: <b id="inviteCount">0</b>
+  </div>
+
+  <!-- شرح المكافأة -->
+  <p style="margin-bottom:30px; font-size:14px; opacity:0.85;">
+    Each invite gives you <b>10 Tickets</b> instantly!
+  </p>
+
+  <!-- زر نسخ الرابط -->
+  <button id="copyBtn" class="soft-btn btn-3d" style="min-width:160px;">Copy Link</button>
+  <div id="copyMsg">✅ Link copied!</div>
+
+  <!-- زر مشاركة سريعة -->
+  <button class="soft-btn btn-3d" onclick="shareInvite()" style="min-width:160px;">Share on Telegram</button>
+
+  <!-- زر Back -->
+  <button class="soft-btn btn-3d back-btn" onclick="openPage('page1')" style="position:absolute; bottom:24px; left:50%; transform:translateX(-50%);">Back</button>
+</div>
+
+<script>
+/* ========== مؤثرات صوتية خفيفة ========== */
+const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+function playPop(){
+  const osc=audioCtx.createOscillator(), gain=audioCtx.createGain();
+  osc.type='sine'; osc.frequency.value=800;
+  gain.gain.setValueAtTime(0.1,audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.08);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime+0.08);
+}
+
+/* ========== ثلج متحرك ========== */
+const container=document.getElementById('snowContainer');
+setInterval(()=>{
+  const f=document.createElement('div'); f.className='snowflake';
+  f.style.left=Math.random()*100+'%'; f.style.opacity=Math.random()*0.6+0.4;
+  f.style.fontSize=(Math.random()*0.8+0.8)+'rem'; f.style.animationDuration=(Math.random()*3+2)+'s';
+  f.style.animationDelay=Math.random()*2+'s'; container.appendChild(f);
+  setTimeout(()=>f.remove(),8000);
+},150);
+
+/* ========== لعبة الفواكه ========== */
+let score=0, gameTimer, timeLeft=30, gameActive=false, points=0, tickets=0;
+const fruits=['🍎','🍊','🍌','🍇','🍓','🍒','🥝','🍑','🍍','🥭','🍉','🍈','🍐','🍋','🥥','🥑','🌽','🥕','🥔','🍠','🥒','🥬','🥦','🧄','🧅','🍄','🥜','🌰','🍞','🥐','🥖','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🍔','🍟','🍕','🌭','🥪','🌮','🌯','🧆','🥙','🥗','🍜','🍝','🍠','🍤','🍣','🍱','🍛','🍚','🍘','🍥','🥠','🍢','🍡','🍧','🍨','🍦','🥧','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🍩','🍪','🌰','🥜','🍯','🥛','🍼','☕','🍵','🧃','🥤','🧋','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧉','🍾','🧊','🥄','🍴','🍽️','🥣','🥡','🥢','🧂'];
+function createFruit(){
+  if(!gameActive)return;
+  const f=document.createElement('div'); f.className='fruit';
+  f.textContent=fruits[Math.floor(Math.random()*fruits.length)];
+  f.style.left=Math.random()*(window.innerWidth-60)+'px';
+  f.style.animationDuration=(Math.random()*0.8+0.8)+'s';
+  f.ontouchstart=f.onmousedown=function(e){
+    e.preventDefault(); playPop(); score++;
+    document.getElementById('score').textContent='Score: '+score;
+    f.style.transform='scale(0)'; f.style.opacity='0';
+    setTimeout(()=>f.remove(),150); return false;
+  };
+  document.body.appendChild(f); setTimeout(()=>f.remove(),1800);
+}
+
+function startGame(){
+  score=0; timeLeft=30; gameActive=true;
+  document.getElementById('score').textContent='Score: 0';
+  document.getElementById('timer').textContent=timeLeft;
+  document.getElementById('gameScreen').style.display='flex';
+
+  const fruitInterval=setInterval(()=>{
+    if(!gameActive){clearInterval(fruitInterval);return;}
+    createFruit();
+  },33);
+
+  gameTimer=setInterval(()=>{
+    timeLeft--;
+    document.getElementById('timer').textContent=timeLeft;
+    if(timeLeft<=0){
+      gameActive=false; clearInterval(gameTimer); clearInterval(fruitInterval);
+      const gamePoints=score*2.5;
+      points+=gamePoints;
+      document.getElementById('points').textContent=points.toFixed(1);
+      showCongrats(gamePoints);
+      setTimeout(()=>openPage('page1'),2500);
+    }
+  },1000);
+}
+
+function showCongrats(gamePoints){
+  const msg=document.createElement('div');
+  msg.innerHTML=`🎉 Congrats! You got <b>${gamePoints.toFixed(1)}</b> points!`;
+  msg.style.cssText=`
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(0,0,0,.7); color:var(--accent); padding:15px 25px;
+    border-radius:15px; font-size:20px; text-align:center; z-index:9999;
+  `;
+  document.body.appendChild(msg);
+  setTimeout(()=>msg.remove(),2000);
+}
+
+/* ========== التنقل بين الصفحات ========== */
+function openPage(pageId){
+  const current=document.querySelector('.page.active');
+  const next=document.getElementById(pageId);
+  if(current===next)return;
+  next.classList.remove('flip-in','flip-out');
+  current.classList.add('flip-out');
+  next.classList.add('flip-in','active');
+  if(pageId==='game')startGame();
+  if(pageId==='invite')loadInvite();
+  setTimeout(()=>current.classList.remove('active','flip-out'),600);
+}
+
+/* ========== Referral Logic ========== */
+function getRefParam() {
+  // 1- Inside Telegram WebApp
+  if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe) {
+    const sp = Telegram.WebApp.initDataUnsafe.start_param;
+    if (sp && sp.startsWith('ref_')) {
+      const ref = sp.replace('ref_', '');
+      if (/^\d+$/.test(ref)) return ref;
+    }
+  }
+  // 2- Browser fallback for testing (manual hash)
+  if (location.hash.startsWith('#ref_')) {
+    const ref = location.hash.split('#ref_')[1];
+    if (/^\d+$/.test(ref)) return ref;
+  }
+  return null;
+}
+
+async function registerUser(refBy) {
+  const uid = (Telegram.WebApp.initDataUnsafe?.user?.id) || 123456789;
+  try {
+    const res = await fetch('https://your-api.com/register', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({user_id: uid, ref_by: refBy})
+    });
+    const data = await res.json();
+    console.log('Registered:', data);
+  } catch (e) {
+    console.warn('Reg error:', e);
+  }
+}
+
+const ref = getRefParam();
+if (ref) {
+  registerUser(ref);
+  // reward inviter (10 tickets)
+  const tickets = parseInt(localStorage.getItem('tickets') || '0');
+  localStorage.setItem('tickets', tickets + 10);
+}
+
+/* ========== Invite Page ========== */
+let inviteLink = '';
+function loadInvite(){
+  const uid = (Telegram.WebApp.initDataUnsafe?.user?.id) || 123456789;
+  inviteLink = `https://t.me/Game_win_usdtBot/earn?startapp=ref_${uid}`;
+  const count = parseInt(localStorage.getItem('invites_' + uid) || '0');
+  document.getElementById('inviteCount').textContent = count;
+}
+
+function copyInvite(){
+  navigator.clipboard.writeText(inviteLink).then(()=>{
+    const m = document.getElementById('copyMsg');
+    m.style.opacity=1;
+    setTimeout(()=>m.style.opacity=0, 1500);
+  });
+}
+
+function shareInvite(){
+  const text = `Join the game and earn tickets!`;
+  const url = encodeURIComponent(inviteLink);
+  Telegram.WebApp.openTelegramLink(`https://t.me/share/url?url=${url}&text=${encodeURIComponent(text)}`);
+}
+
+/* ========== نظام الإعلانات ========== */
+let adsReadyAfter=0, watching=false;
+const adBtn=document.getElementById('adBtn');
+function watchAd(){
+  const now = Date.now();
+  if(watching || now < adsReadyAfter) return;
+  watching=true;
+  adBtn.disabled=true;
+  setTimeout(() => {
+    tickets++;
+    document.getElementById('tickets').textContent = tickets;
+    adsReadyAfter = Date.now() + 5000;
+    watching=false;
+    adBtn.disabled = false;
+  }, 2000);
+}
+
+/* ========== شراء تذاكر ========== */
+function buyTickets(ticketAmount){
+  let starCost=0;
+  if(ticketAmount===500) starCost=10;
+  else if(ticketAmount===2500) starCost=50;
+  else if(ticketAmount===6000) starCost=100;
+
+  if(points<starCost){
+    alert(`You need ${starCost} ⭐ to buy ${ticketAmount} 🎫`);
+    return;
+  }
+  points-=starCost;
+  document.getElementById('points').textContent=points.toFixed(1);
+  tickets+=ticketAmount;
+  document.getElementById('tickets').textContent=tickets;
+  alert(`You bought ${ticketAmount} 🎫 successfully!`);
+}
+
+/* ========== تشغيل اللعبة باستخدام تذكرة ========== */
+function checkPlay(){
+  if(tickets<=0){
+    alert("You need at least 1 ticket to play!");
+    return;
+  }
+  tickets--;
+  document.getElementById('tickets').textContent=tickets;
+  openPage('game');
+}
+
+/* ========== تذاكر بداية التطبيق ========== */
+(function firstTickets(){
+  const gaveFirstTickets=localStorage.getItem("gaveFirstTickets");
+  if(!gaveFirstTickets){
+    tickets=3;
+    localStorage.setItem("gaveFirstTickets","true");
+    document.getElementById('tickets').textContent=tickets;
+  }
+})();
+
+/* ========== Telegram Ready ========== */
+Telegram.WebApp.ready();
+Telegram.WebApp.expand();
+</script>
+</body>
+</html>
