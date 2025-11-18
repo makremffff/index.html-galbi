@@ -200,7 +200,7 @@
   </p>
 
   <!-- زر نسخ الرابط -->
-  <button id="copyBtn" class="soft-btn btn-3d" style="min-width:160px;">Copy Link</button>
+  <button id="copyBtn" class="soft-btn btn-3d" style="min-width:160px;" onclick="copyInvite()">Copy Link</button>
   <div id="copyMsg">✅ Link copied!</div>
 
   <!-- زر مشاركة سريعة -->
@@ -211,6 +211,100 @@
 </div>
 
 <script>
+/* ========== دوال Fetch للاتصال بالـ Backend ========== */
+const API_BASE = '/api/index.js';
+
+async function apiCall(action, data = {}) {
+  try {
+    const response = await fetch(`${API_BASE}?action=${action}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...data,
+        user_id: Telegram.WebApp.initDataUnsafe?.user?.id || 'unknown',
+        initData: Telegram.WebApp.initData
+      })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('API Error:', error);
+    return { success: false, error: 'Network error' };
+  }
+}
+
+/* ========== دوال المستخدم والبيانات ========== */
+async function loadUserData() {
+  const data = await apiCall('getUserData');
+  if (data.success) {
+    document.getElementById('points').textContent = data.points || 0;
+    document.getElementById('usdt').textContent = data.usdt || 0;
+    document.getElementById('tickets').textContent = data.tickets || 0;
+    
+    // تحديث بيانات المستخدم
+    if (data.user) {
+      document.getElementById('userName').textContent = data.user.first_name || 'User';
+      document.getElementById('userId').textContent = `ID: ${data.user.id || 'unknown'}`;
+      if (data.user.photo_url) {
+        document.getElementById('userImg').src = data.user.photo_url;
+      }
+    }
+  }
+}
+
+async function updateUserStats(points, usdt, tickets) {
+  await apiCall('updateStats', { points, usdt, tickets });
+}
+
+/* ========== دوال اللعبة ========== */
+async function startGameSession() {
+  const result = await apiCall('startGame');
+  return result.success;
+}
+
+async function endGameSession(score, earnedPoints) {
+  const result = await apiCall('endGame', { score, earned_points: earnedPoints });
+  return result.success;
+}
+
+/* ========== دوال المتجر والإعلانات ========== */
+async function watchAdComplete() {
+  const result = await apiCall('watchAd');
+  if (result.success && result.tickets) {
+    return result.tickets;
+  }
+  return 0;
+}
+
+async function processPurchase(ticketAmount, starCost) {
+  const result = await apiCall('purchaseTickets', { 
+    ticket_amount: ticketAmount, 
+    star_cost: starCost 
+  });
+  return result.success;
+}
+
+/* ========== دوال الإحالات ========== */
+async function registerReferral(refBy) {
+  const result = await apiCall('referral', { referred_by: refBy });
+  return result.success;
+}
+
+async function loadInviteData() {
+  const result = await apiCall('getInviteData');
+  if (result.success) {
+    document.getElementById('inviteCount').textContent = result.invite_count || 0;
+    return result.invite_link;
+  }
+  return '';
+}
+
+async function updateInviteCount() {
+  const result = await apiCall('updateInviteCount');
+  return result.invite_count || 0;
+}
+
 /* ========== مؤثرات صوتية خفيفة ========== */
 const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
 function playPop(){
@@ -233,7 +327,7 @@ setInterval(()=>{
 },150);
 
 /* ========== لعبة الفواكه ========== */
-let score=0, gameTimer, timeLeft=30, gameActive=false, points=0, tickets=0;
+let score=0, gameTimer, timeLeft=30, gameActive=false, points=0, tickets=0, usdt=0;
 const fruits=['🍎','🍊','🍌','🍇','🍓','🍒','🥝','🍑','🍍','🥭','🍉','🍈','🍐','🍋','🥥','🥑','🌽','🥕','🥔','🍠','🥒','🥬','🥦','🧄','🧅','🍄','🥜','🌰','🍞','🥐','🥖','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🍔','🍟','🍕','🌭','🥪','🌮','🌯','🧆','🥙','🥗','🍜','🍝','🍠','🍤','🍣','🍱','🍛','🍚','🍘','🍥','🥠','🍢','🍡','🍧','🍨','🍦','🥧','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🍩','🍪','🌰','🥜','🍯','🥛','🍼','☕','🍵','🧃','🥤','🧋','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧉','🍾','🧊','🥄','🍴','🍽️','🥣','🥡','🥢','🧂'];
 function createFruit(){
   if(!gameActive)return;
@@ -250,7 +344,14 @@ function createFruit(){
   document.body.appendChild(f); setTimeout(()=>f.remove(),1800);
 }
 
-function startGame(){
+async function startGame(){
+  // بدء جلسة اللعبة في backend
+  const gameStarted = await startGameSession();
+  if (!gameStarted) {
+    alert("Failed to start game session");
+    return;
+  }
+
   score=0; timeLeft=30; gameActive=true;
   document.getElementById('score').textContent='Score: 0';
   document.getElementById('timer').textContent=timeLeft;
@@ -269,6 +370,12 @@ function startGame(){
       const gamePoints=score*2.5;
       points+=gamePoints;
       document.getElementById('points').textContent=points.toFixed(1);
+      
+      // إرسال نتيجة اللعبة إلى backend
+      endGameSession(score, gamePoints);
+      // تحديث الإحصائيات
+      updateUserStats(points, usdt, tickets);
+      
       showCongrats(gamePoints);
       setTimeout(()=>openPage('page1'),2500);
     }
@@ -295,8 +402,8 @@ function openPage(pageId){
   next.classList.remove('flip-in','flip-out');
   current.classList.add('flip-out');
   next.classList.add('flip-in','active');
-  if(pageId==='game')startGame();
-  if(pageId==='invite')loadInvite();
+  if(pageId==='game') startGame();
+  if(pageId==='invite') loadInvite();
   setTimeout(()=>current.classList.remove('active','flip-out'),600);
 }
 
@@ -318,36 +425,20 @@ function getRefParam() {
   return null;
 }
 
-async function registerUser(refBy) {
-  const uid = (Telegram.WebApp.initDataUnsafe?.user?.id) || 123456789;
-  try {
-    const res = await fetch('https://your-api.com/register', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: uid, ref_by: refBy})
-    });
-    const data = await res.json();
-    console.log('Registered:', data);
-  } catch (e) {
-    console.warn('Reg error:', e);
-  }
-}
-
 const ref = getRefParam();
 if (ref) {
-  registerUser(ref);
-  // reward inviter (10 tickets)
-  const tickets = parseInt(localStorage.getItem('tickets') || '0');
-  localStorage.setItem('tickets', tickets + 10);
+  registerReferral(ref);
 }
 
 /* ========== Invite Page ========== */
 let inviteLink = '';
-function loadInvite(){
-  const uid = (Telegram.WebApp.initDataUnsafe?.user?.id) || 123456789;
-  inviteLink = `https://t.me/Game_win_usdtBot/earn?startapp=ref_${uid}`;
-  const count = parseInt(localStorage.getItem('invites_' + uid) || '0');
-  document.getElementById('inviteCount').textContent = count;
+async function loadInvite(){
+  inviteLink = await loadInviteData();
+  if (!inviteLink) {
+    // Fallback إذا فشل جلب الرابط من backend
+    const uid = (Telegram.WebApp.initDataUnsafe?.user?.id) || 123456789;
+    inviteLink = `https://t.me/Game_win_usdtBot/earn?startapp=ref_${uid}`;
+  }
 }
 
 function copyInvite(){
@@ -367,22 +458,27 @@ function shareInvite(){
 /* ========== نظام الإعلانات ========== */
 let adsReadyAfter=0, watching=false;
 const adBtn=document.getElementById('adBtn');
-function watchAd(){
+async function watchAd(){
   const now = Date.now();
   if(watching || now < adsReadyAfter) return;
   watching=true;
   adBtn.disabled=true;
-  setTimeout(() => {
-    tickets++;
+  
+  const result = await watchAdComplete();
+  if (result > 0) {
+    tickets += result;
     document.getElementById('tickets').textContent = tickets;
-    adsReadyAfter = Date.now() + 5000;
-    watching=false;
-    adBtn.disabled = false;
-  }, 2000);
+    // تحديث الإحصائيات بعد مشاهدة الإعلان
+    updateUserStats(points, usdt, tickets);
+  }
+  
+  adsReadyAfter = Date.now() + 5000;
+  watching=false;
+  adBtn.disabled = false;
 }
 
 /* ========== شراء تذاكر ========== */
-function buyTickets(ticketAmount){
+async function buyTickets(ticketAmount){
   let starCost=0;
   if(ticketAmount===500) starCost=10;
   else if(ticketAmount===2500) starCost=50;
@@ -392,11 +488,20 @@ function buyTickets(ticketAmount){
     alert(`You need ${starCost} ⭐ to buy ${ticketAmount} 🎫`);
     return;
   }
-  points-=starCost;
-  document.getElementById('points').textContent=points.toFixed(1);
-  tickets+=ticketAmount;
-  document.getElementById('tickets').textContent=tickets;
-  alert(`You bought ${ticketAmount} 🎫 successfully!`);
+  
+  const purchaseSuccess = await processPurchase(ticketAmount, starCost);
+  if (purchaseSuccess) {
+    points-=starCost;
+    document.getElementById('points').textContent=points.toFixed(1);
+    tickets+=ticketAmount;
+    document.getElementById('tickets').textContent=tickets;
+    alert(`You bought ${ticketAmount} 🎫 successfully!`);
+    
+    // تحديث الإحصائيات بعد الشراء
+    updateUserStats(points, usdt, tickets);
+  } else {
+    alert("Purchase failed. Please try again.");
+  }
 }
 
 /* ========== تشغيل اللعبة باستخدام تذكرة ========== */
@@ -407,22 +512,35 @@ function checkPlay(){
   }
   tickets--;
   document.getElementById('tickets').textContent=tickets;
+  
+  // تحديث الإحصائيات بعد استخدام التذكرة
+  updateUserStats(points, usdt, tickets);
+  
   openPage('game');
 }
 
-/* ========== تذاكر بداية التطبيق ========== */
-(function firstTickets(){
+/* ========== تهيئة التطبيق ========== */
+async function initApp() {
+  // تحميل بيانات المستخدم عند البدء
+  await loadUserData();
+  
+  // تذاكر بداية التطبيق
   const gaveFirstTickets=localStorage.getItem("gaveFirstTickets");
   if(!gaveFirstTickets){
     tickets=3;
     localStorage.setItem("gaveFirstTickets","true");
     document.getElementById('tickets').textContent=tickets;
+    // تحديث الإحصائيات مع التذاكر المجانية
+    updateUserStats(points, usdt, tickets);
   }
-})();
+}
 
 /* ========== Telegram Ready ========== */
 Telegram.WebApp.ready();
 Telegram.WebApp.expand();
+
+// تهيئة التطبيق عند التحميل
+window.addEventListener('load', initApp);
 </script>
 </body>
 </html>
