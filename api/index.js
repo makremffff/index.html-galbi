@@ -1,4 +1,4 @@
-// /api/index.js — FULL BACKEND FOR TELEGRAM WEBAPP GAME
+// /api/index.js — FULL BACKEND FOR TELEGRAM WEBAPP GAME (FINAL FIXED VERSION)
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -17,9 +17,8 @@ export default async function handler(req, res) {
     const action = req.query.action;
     const body = req.body || {};
     const user_id = body.user_id;
-    const telegram_user = body.initData ?? null;
 
-    // ========== HELPER: CALL SUPABASE ==========
+    // ========================== HELPER (Supabase) ==========================
     async function sb(url, method = "GET", data = null) {
       return await fetch(`${SUPABASE_URL}${url}`, {
         method,
@@ -32,46 +31,50 @@ export default async function handler(req, res) {
       }).then(r => r.json());
     }
 
-    // ========== ENSURE USER EXISTS ==========
-    async function ensureUser() {
-      const u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
+    // ========================== CREATE USER IF NOT EXISTS ==========================
+    async function ensureUserCreated() {
+      let u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
 
-      if (u.length === 0) {
-        const tg = body.initDataUnsafe?.user || {};
+      if (!u || u.length === 0) {
+        const tgUser = body.initData?.user || {};
+
         await sb(`/rest/v1/users`, "POST", {
           user_id,
-          first_name: tg.first_name || "",
-          last_name: tg.last_name || "",
-          username: tg.username || "",
-          photo_url: tg.photo_url || "",
+          first_name: tgUser.first_name || "",
+          last_name: tgUser.last_name || "",
+          username: tgUser.username || "",
+          photo_url: tgUser.photo_url || "",
           points: 0,
           tickets: 3,
           usdt: 0,
           invite_count: 0,
-          referred_by: body.referred_by || null,
+          referred_by: null,
           created_at: new Date().toISOString()
         });
+
+        u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
       }
+
+      return u[0];
     }
 
-    // ============================================================
-    // =================== ACTIONS IMPLEMENTATION ==================
-    // ============================================================
+    // ======================================================================
+    // =============================== ACTIONS ===============================
+    // ======================================================================
 
     // ---------- 1) getUserData ----------
     if (action === "getUserData") {
-      await ensureUser();
-      const u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
+      const u = await ensureUserCreated();
 
       return res.json({
         success: true,
-        points: u[0].points,
-        usdt: u[0].usdt,
-        tickets: u[0].tickets,
+        points: u.points,
+        usdt: u.usdt,
+        tickets: u.tickets,
         user: {
-          id: u[0].user_id,
-          first_name: u[0].first_name,
-          photo_url: u[0].photo_url
+          id: u.user_id,
+          first_name: u.first_name,
+          photo_url: u.photo_url
         }
       });
     }
@@ -94,8 +97,8 @@ export default async function handler(req, res) {
 
     // ---------- 4) endGame ----------
     if (action === "endGame") {
-      const u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
-      const newPoints = (u[0].points || 0) + (body.earned_points || 0);
+      const u = await ensureUserCreated();
+      const newPoints = (u.points || 0) + (body.earned_points || 0);
 
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
         points: newPoints
@@ -106,8 +109,8 @@ export default async function handler(req, res) {
 
     // ---------- 5) watchAd ----------
     if (action === "watchAd") {
-      const u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
-      const newTickets = u[0].tickets + 1;
+      const u = await ensureUserCreated();
+      const newTickets = u.tickets + 1;
 
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
         tickets: newTickets
@@ -118,14 +121,14 @@ export default async function handler(req, res) {
 
     // ---------- 6) purchaseTickets ----------
     if (action === "purchaseTickets") {
-      const u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
+      const u = await ensureUserCreated();
 
-      if (u[0].points < body.star_cost)
+      if (u.points < body.star_cost)
         return res.json({ success: false, error: "Not enough stars" });
 
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
-        points: u[0].points - body.star_cost,
-        tickets: u[0].tickets + body.ticket_amount
+        points: u.points - body.star_cost,
+        tickets: u.tickets + body.ticket_amount
       });
 
       return res.json({ success: true });
@@ -137,42 +140,46 @@ export default async function handler(req, res) {
 
       if (!ref || ref == user_id) return res.json({ success: false });
 
-      const u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
-      if (u[0]?.referred_by) return res.json({ success: true });
+      const u = await ensureUserCreated();
 
+      if (u.referred_by)
+        return res.json({ success: true });
+
+      // Save referral
       await sb(`/rest/v1/users?user_id=eq.${user_id}`, "PATCH", {
         referred_by: ref
       });
 
+      // Reward inviter
       const r = await sb(`/rest/v1/users?user_id=eq.${ref}`);
-      await sb(`/rest/v1/users?user_id=eq.${ref}`, "PATCH", {
-        invite_count: r[0].invite_count + 1,
-        tickets: r[0].tickets + 10
-      });
+      if (r.length > 0) {
+        await sb(`/rest/v1/users?user_id=eq.${ref}`, "PATCH", {
+          invite_count: r[0].invite_count + 1,
+          tickets: r[0].tickets + 10
+        });
+      }
 
       return res.json({ success: true });
     }
 
     // ---------- 8) getInviteData ----------
     if (action === "getInviteData") {
-      const u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
-
+      const u = await ensureUserCreated();
       const link = `https://t.me/Game_win_usdtBot/earn?startapp=ref_${user_id}`;
 
       return res.json({
         success: true,
-        invite_count: u[0].invite_count,
+        invite_count: u.invite_count,
         invite_link: link
       });
     }
 
     // ---------- 9) updateInviteCount ----------
     if (action === "updateInviteCount") {
-      const u = await sb(`/rest/v1/users?user_id=eq.${user_id}`);
-
+      const u = await ensureUserCreated();
       return res.json({
         success: true,
-        invite_count: u[0].invite_count
+        invite_count: u.invite_count
       });
     }
 
