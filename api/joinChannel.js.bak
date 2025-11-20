@@ -1,0 +1,6 @@
+import { db } from './_supabase.js';
+export default async function handler(req,res){
+  const { userId } = req.body;
+  await db.update("users",{ joined_channel:true }, `telegram_id=eq.${userId}`);
+  res.status(200).json({ ok:true });
+}
